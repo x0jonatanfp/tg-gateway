@@ -77,7 +77,7 @@ export class ApiServer {
 			const breaker = this.circuit?.info();
 			const state = breaker?.state as string | undefined;
 			const failures = (breaker?.failures as number | undefined) ?? 0;
-			// Mismo criterio que el vigilante de void: cerrado y sin fallos
+			// Mismo criterio que el vigilante de otro servicio: cerrado y sin fallos
 			// recientes. El código de estado sigue siendo 200 para no romper a
 			// quien use `curl --fail` o `res.ok`: la verdad va en el cuerpo.
 			const ok = state ? state === "closed" && failures === 0 : true;

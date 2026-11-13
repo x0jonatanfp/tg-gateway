@@ -328,11 +328,12 @@ describe("HandleUpdateUseCase", () => {
 		// El toque de un botón inline trae como data el comando que el usuario
 		// habría tecleado. Sin handler específico debe seguir el mismo camino
 		// que un mensaje: al handler por defecto. Antes se descartaba, así que
-		// los botones de /aprobar de void no hacían nada al pulsarlos.
+		// los botones inline de un comando registrado por otro servicio no
+		// hacían nada al pulsarlos.
 		it("forwards callback to __default__ when no specific handler matches", async () => {
 			registry.register("__default__", "https://hook.example.com/default");
 			const update = makeCallbackUpdate(
-				"/aprobar 3f2a1c9e-0b7d-4e5f-9a11-8c2de6f4b7a0",
+				"/approve 3f2a1c9e-0b7d-4e5f-9a11-8c2de6f4b7a0",
 			);
 
 			const handled = await useCase.execute(update);
@@ -346,14 +347,14 @@ describe("HandleUpdateUseCase", () => {
 
 		it("still prefers a specific prefix handler over __default__", async () => {
 			registry.register("__default__", "https://hook.example.com/default");
-			registry.register("/aprobar", "https://hook.example.com/aprobar");
-			const update = makeCallbackUpdate("/aprobar 3f2a1c9e-0b7d-4e5f");
+			registry.register("/approve", "https://hook.example.com/approve");
+			const update = makeCallbackUpdate("/approve 3f2a1c9e-0b7d-4e5f");
 
 			const handled = await useCase.execute(update);
 
 			expect(handled).toBe(true);
 			expect(fetch).toHaveBeenCalledWith(
-				"https://hook.example.com/aprobar",
+				"https://hook.example.com/approve",
 				expect.anything(),
 			);
 			expect(fetch).toHaveBeenCalledTimes(1);

@@ -103,7 +103,7 @@ export class HandleUpdateUseCase {
 		}
 		// Un callback sin handler específico cae al por defecto, igual que los
 		// mensajes: el data es el comando que el usuario habría tecleado
-		// ("/aprobar <id>"), así que el toque de un botón inline se trata como
+		// ("/approve <id>"), así que el toque de un botón inline se trata como
 		// texto. Sin este fallback el update se descartaba en silencio: el
 		// spinner del botón se apagaba y no pasaba nada más. Se exige data no
 		// vacío para no reenviar callbacks degenerados sin nada que procesar.
