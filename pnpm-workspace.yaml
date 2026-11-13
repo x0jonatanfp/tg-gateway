@@ -1,0 +1,8 @@
+# pnpm 11 lee su configuración de aquí, no de .npmrc: el
+# `verify-deps-before-run=false` del .npmrc se ignora (devuelve undefined),
+# así que el chequeo de deps corría antes de cada script y abortaba sin TTY
+# con ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY. Eso rompía `pnpm build`,
+# `pnpm test` y, con ellos, `pnpm deploy`.
+verifyDepsBeforeRun: false
+allowBuilds:
+  esbuild: true

@@ -1,0 +1,32 @@
+# Ejemplo de unidad de sistema. Ajusta User, rutas y la forma de inyectar el
+# entorno a tu instalación; el servicio real vive en /etc/systemd/system y no
+# en este repo.
+[Unit]
+Description=TG Gateway — puerta única de Telegram
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=180
+StartLimitBurst=15
+
+[Service]
+Type=simple
+User=tg-user
+Group=tg-user
+WorkingDirectory=/opt/tg-gateway
+Environment=TG_LOG_FILE=/var/log/tg-gateway.log
+# Opcional: un env file con TG_BOT_TOKEN, TG_ALLOWED_CHATS y TG_DEFAULT_HANDLERS.
+# El prefijo "-" hace que el servicio arranque aunque el fichero no exista.
+# Si prefieres tu propio lanzador de secretos, sustituye esta línea y el
+# ExecStart por el tuyo.
+EnvironmentFile=-/etc/tg-gateway/tg-gateway.env
+ExecStart=/usr/bin/node dist/tg-gateway.mjs
+Restart=always
+# Telegram corta si se reconecta demasiado rápido.
+RestartSec=15
+UMask=0077
+TimeoutStopSec=20
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

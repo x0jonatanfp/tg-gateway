@@ -1,0 +1,38 @@
+{
+  "name": "tg-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "pnpm build:gateway && pnpm build:mcp && pnpm build:cli",
+    "build:gateway": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/tg-gateway.mjs --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
+    "build:mcp": "esbuild src/mcp/index.ts --bundle --platform=node --format=esm --outfile=dist/tg-mcp.mjs --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
+    "deploy": "make deploy",
+    "restart": "sudo systemctl restart tg-gateway.service",
+    "status": "sudo systemctl status tg-gateway.service",
+    "logs": "journalctl -u tg-gateway.service -n 50 -f",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "build:cli": "install -D -m 755 scripts/tg-send.mjs dist/tg-send.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "express": "^5.1.0",
+    "undici": "^8.7.0",
+    "winston": "^3.19.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "@types/supertest": "^7.2.0",
+    "esbuild": "^0.25.0",
+    "supertest": "^7.2.2",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.9"
+  }
+}
