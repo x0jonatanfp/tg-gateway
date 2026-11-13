@@ -4,7 +4,6 @@ tg-gateway.mjs
 .env
 *.log
 graphify-out
-.claude
 
 # Planes y encargos efímeros para agentes delegados (no se versionan)
 tmp/
