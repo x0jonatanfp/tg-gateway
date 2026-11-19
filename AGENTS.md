@@ -1,144 +1,142 @@
 # AGENTS.md
 
-Guía para agentes de código que trabajan en este repositorio.
+Guide for coding agents working in this repository.
 
-## Qué es esto
+## What this is
 
-`tg-gateway` es un gateway HTTP para un bot de Telegram: recibe updates vía long-polling
-(`getUpdates`), los reenvía a webhooks externos según el comando, y expone una API HTTP
-interna para que esos webhooks respondan (enviar mensajes, fotos, videos, editar botones,
-etc.). También descarga medios (audio/video) de URLs reconocidas usando `yt-dlp`.
+`tg-gateway` is an HTTP gateway for a Telegram bot: it receives updates via long-polling
+(`getUpdates`), forwards them to external webhooks according to the command, and exposes an
+internal HTTP API so those webhooks can respond (send messages, photos, videos, edit buttons,
+etc.). It also downloads media (audio/video) from recognised URLs using `yt-dlp`.
 
-Es un servicio de un solo proceso, sin base de datos, pensado para correr como
-unidad de sistema de systemd (`tg-gateway.service`) en un host propio.
+It is a single-process service, with no database, meant to run as a system
+systemd unit (`tg-gateway.service`) on its own host.
 
-## Comandos
+## Commands
 
 ```bash
-pnpm dev              # correr en modo desarrollo (tsx, sin build)
-pnpm build            # bundlear a dist/tg-gateway.mjs con esbuild
-pnpm test             # correr toda la suite (vitest run)
-pnpm test:watch       # vitest en modo watch
-pnpm test:coverage    # vitest con cobertura (v8)
+pnpm dev              # run in development mode (tsx, no build)
+pnpm build            # bundle to dist/tg-gateway.mjs with esbuild
+pnpm test             # run the whole suite (vitest run)
+pnpm test:watch       # vitest in watch mode
+pnpm test:coverage    # vitest with coverage (v8)
 ```
 
-Un solo test o archivo:
+A single test or file:
 
 ```bash
 pnpm vitest run tests/application/handle-update.test.ts
-pnpm vitest run -t "nombre del test"
+pnpm vitest run -t "test name"
 ```
 
-Deploy y operación (requieren acceso al host destino vía `make`/`sudo systemctl`):
+Deployment and operation (require access to the target host via `make`/`sudo systemctl`):
 
 ```bash
-pnpm deploy   # make deploy: build + rsync al directorio de despliegue + reinstall prod + restart
+pnpm deploy   # make deploy: build + rsync to the deployment directory + reinstall prod + restart
 pnpm restart  # sudo systemctl restart tg-gateway.service
 pnpm status   # sudo systemctl status tg-gateway.service
 pnpm logs     # journalctl -u tg-gateway.service -n 50 -f
 ```
 
-No hay linter configurado (ni ESLint ni Prettier); el estilo del código es tabs para
-indentación y TypeScript estricto (`strict: true` en `tsconfig.json`). No hay build step
-de tipo-check separado — `tsc` no corre en CI, la verificación de tipos ocurre implícitamente
-al ejecutar `tsx`/`esbuild` o al correr los tests.
+There is no linter configured (neither ESLint nor Prettier); the code style is tabs for
+indentation and strict TypeScript (`strict: true` in `tsconfig.json`). There is no separate
+type-check build step — `tsc` does not run in CI; type checking happens implicitly
+when running `tsx`/`esbuild` or when running the tests.
 
-Gestor de paquetes: **pnpm** (hay `pnpm-lock.yaml`; no usar `npm`/`yarn`).
+Package manager: **pnpm** (there is a `pnpm-lock.yaml`; do not use `npm`/`yarn`).
 
-## Arquitectura
+## Architecture
 
-Arquitectura hexagonal (ports & adapters) en tres capas bajo `src/`:
+Hexagonal architecture (ports & adapters) in three layers under `src/`:
 
-- **`domain/`** — lógica pura, sin I/O.
-  - `entities/message.ts`: tipos de dominio (`OutgoingMessage`, `IncomingUpdate` con el
-    shape snake_case real de Telegram, `SendResult`).
-  - `ports/`: interfaces que infraestructura implementa (`TelegramPort`,
+- **`domain/`** — pure logic, no I/O.
+  - `entities/message.ts`: domain types (`OutgoingMessage`, `IncomingUpdate` with the
+    real snake_case shape of Telegram, `SendResult`).
+  - `ports/`: interfaces that infrastructure implements (`TelegramPort`,
     `HandlerRegistryPort`).
-  - `services/queue.ts`: `QueueService`, cola FIFO que serializa envíos respetando un
-    intervalo mínimo entre mensajes (rate limiting de salida hacia Telegram).
-  - `services/transient-network.ts`: detección de errores de red transitorios
-    (`isTransientNetworkError`) y backoff con jitter (`backoffWithJitter`), compartido
-    por `telegram-client.ts` y `forwarder.ts` para no desincronizar la lógica de retry.
+  - `services/queue.ts`: `QueueService`, a FIFO queue that serialises sends, respecting a
+    minimum interval between messages (outbound rate limiting towards Telegram).
+  - `services/transient-network.ts`: detection of transient network errors
+    (`isTransientNetworkError`) and backoff with jitter (`backoffWithJitter`), shared
+    by `telegram-client.ts` and `forwarder.ts` so the retry logic does not drift apart.
 
-- **`application/`** — casos de uso, uno por operación, todos reciben sus dependencias
-  (ports) por constructor:
-  - `send-message.ts`, `send-photo.ts`, `send-video.ts`, `edit-reply-markup.ts`: wrappean
-    al `TelegramPort` pasando por el `QueueService`.
-  - `register-handler.ts`: alta/listado de handlers en el `HandlerRegistryPort`.
-  - `handle-update.ts` (`HandleUpdateUseCase`): el router principal de updates entrantes.
-    Orden de decisión en `execute()`: (1) `callback_query` → rutea por prefijo de `data`;
-    (2) texto con URL de medio reconocida → `DownloadMediaUseCase`; (3) comando (primer
-    token, con `@botname` recortado) → handler registrado; (4) fallback al handler
-    `__default__` si hay contenido (texto, caption o cualquier adjunto). Reenvía al
-    webhook externo vía `forwardUpdate`.
-  - `download-media.ts` (`DownloadMediaUseCase`): detecta URLs de plataformas soportadas
+- **`application/`** — use cases, one per operation, all receive their dependencies
+  (ports) through the constructor:
+  - `send-message.ts`, `send-photo.ts`, `send-video.ts`, `edit-reply-markup.ts`: wrap
+    the `TelegramPort` going through the `QueueService`.
+  - `register-handler.ts`: add/list handlers in the `HandlerRegistryPort`.
+  - `handle-update.ts` (`HandleUpdateUseCase`): the main router for incoming updates.
+    Decision order in `execute()`: (1) `callback_query` → routes by `data` prefix;
+    (2) text with a recognised media URL → `DownloadMediaUseCase`; (3) command (first
+    token, with `@botname` trimmed) → registered handler; (4) fallback to the
+    `__default__` handler if there is content (text, caption or any attachment). Forwards to the
+    external webhook via `forwardUpdate`.
+  - `download-media.ts` (`DownloadMediaUseCase`): detects URLs from supported platforms
     (YouTube, SoundCloud, Bandcamp, Vimeo, TikTok, Twitter/X, Instagram, Twitch, Spotify)
-    con `MEDIA_URL_PATTERN`, y lanza `yt-dlp` como proceso hijo (fire-and-forget) con un
-    cap de descargas concurrentes (`TG_MAX_CONCURRENT_DOWNLOADS`). Otras URLs (GitHub,
-    docs, etc.) pasan de largo hacia el handler registry.
+    with `MEDIA_URL_PATTERN`, and launches `yt-dlp` as a child process (fire-and-forget) with a
+    cap on concurrent downloads (`TG_MAX_CONCURRENT_DOWNLOADS`). Other URLs (GitHub,
+    docs, etc.) pass through to the handler registry.
 
-- **`infrastructure/`** — adapters concretos y wiring HTTP/proceso:
-  - `telegram-client.ts` (`TelegramClient implements TelegramPort`): cliente HTTP a la
-    Bot API de Telegram. Tiene retry con backoff separado para errores de red (`net`) vs.
-    rate-limit 429 (`rate`), timeouts configurables por método, y un **circuit breaker**
-    de 3 estados (`closed` → `open` → `half_open`) que corta llamadas tras N fallos
-    consecutivos de red para no martillear un endpoint caído. Los multipart uploads
-    (`sendPhoto`, `sendVideo`) no se reintentan por defecto porque un retry a mitad de
-    subida puede duplicar contenido en el servidor.
-  - `poller.ts` (`Poller`): loop de long-polling contra `getUpdates`, con backoff
-    exponencial propio ante errores (independiente del circuit breaker del cliente).
-  - `forwarder.ts` (`forwardUpdate`): hace el POST del update al webhook externo; solo
-    reintenta ante error de red transitorio, nunca ante 4xx/5xx (el receptor pudo haber
-    procesado parcialmente).
-  - `handler-registry.ts` (`HandlerRegistry implements HandlerRegistryPort`): mapa en
-    memoria `comando → webhook` (no persiste; se repuebla en boot desde
-    `TG_DEFAULT_HANDLERS` y luego vía `/api/register-handler`).
-  - `api-server.ts` (`ApiServer`): Express con los endpoints internos (ver abajo).
-  - `config.ts` (`loadConfig`): toda la config sale de env vars, con defaults
-    co-localizados en el módulo que los usa cuando tiene sentido (p. ej. los timeouts
-    default por método viven en `telegram-client.ts`, no en `config.ts`).
-  - `logger.ts`: winston, formato texto a stdout + JSON opcional a archivo
+- **`infrastructure/`** — concrete adapters and HTTP/process wiring:
+  - `telegram-client.ts` (`TelegramClient implements TelegramPort`): HTTP client for the
+    Telegram Bot API. It has retry with separate backoff for network errors (`net`) vs.
+    429 rate-limiting (`rate`), per-method configurable timeouts, and a 3-state **circuit breaker**
+    (`closed` → `open` → `half_open`) that cuts calls after N consecutive network failures so
+    it does not hammer a downed endpoint. Multipart uploads (`sendPhoto`, `sendVideo`) are not
+    retried by default, because a retry mid-upload can duplicate content on the server.
+  - `poller.ts` (`Poller`): long-polling loop against `getUpdates`, with its own
+    exponential backoff on errors (independent of the client's circuit breaker).
+  - `forwarder.ts` (`forwardUpdate`): POSTs the update to the external webhook; it only retries
+    on a transient network error, never on 4xx/5xx (the receiver may have partially processed it).
+  - `handler-registry.ts` (`HandlerRegistry implements HandlerRegistryPort`): in-memory map
+    `command → webhook` (not persisted; repopulated at boot from
+    `TG_DEFAULT_HANDLERS` and then via `/api/register-handler`).
+  - `api-server.ts` (`ApiServer`): Express with the internal endpoints (see below).
+  - `config.ts` (`loadConfig`): all configuration comes from env vars, with defaults
+    co-located in the module that uses them when that makes sense (e.g. the default timeouts
+    per method live in `telegram-client.ts`, not in `config.ts`).
+  - `logger.ts`: winston, text format to stdout + optional JSON to a file
     (`TG_LOG_FILE`).
 
-`src/index.ts` es el composition root: arma el `Agent` de undici (fuerza IPv4 porque el
-host no tiene salida IPv6 — ver comentario ahí para el porqué exacto), instancia todos los
-casos de uso con sus dependencias, arranca `ApiServer` y el `Poller`, y filtra updates por
-chat permitido y por mensajes del propio bot.
+`src/index.ts` is the composition root: it builds the undici `Agent` (forces IPv4 because the
+host has no IPv6 egress — see the comment there for the exact reason), instantiates all the
+use cases with their dependencies, starts `ApiServer` and the `Poller`, and filters updates by
+allowed chat and by the bot's own messages.
 
-Ese filtro es el **único portero** del sistema: es la única puerta que da a internet. Es
-cerrado por defecto — `TG_ALLOWED_CHATS` con la lista vacía (o sin definir) **no acepta
-ningún update**, nunca "todos"; el arranque lo avisa con un `logger.warn`. El predicado vive
-en `src/infrastructure/allowed-chat.ts` (`isAllowedChat`) y por eso es testeable en
-aislamiento: `index.ts` solo lo llama.
+That filter is the **only gatekeeper** of the system: it is the only door that opens to the internet. It is
+closed by default — `TG_ALLOWED_CHATS` with an empty list (or undefined) **accepts no
+update**, never "all"; startup warns about it with a `logger.warn`. The predicate lives in
+`src/infrastructure/allowed-chat.ts` (`isAllowedChat`) and is therefore testable in
+isolation: `index.ts` only calls it.
 
-### API HTTP interna (consumida por los webhooks externos)
+### Internal HTTP API (consumed by the external webhooks)
 
-Todos bajo el puerto `PORT` (default 4000):
+All under port `PORT` (default 4000):
 
 - `GET /health`
 - `POST /api/send`, `/api/send-photo`, `/api/send-video`, `/api/edit-reply-markup`,
   `/api/delete-message`, `/api/answer-callback`
 - `POST /api/register-handler`, `GET /api/handlers`
 
-### Convenciones de testing
+### Testing conventions
 
-- Tests en `tests/` (no junto al código fuente), reflejando la estructura de `src/`.
-- `tests/test/helpers.ts` tiene mocks/builders reusables: `createMockTelegramPort()`,
+- Tests in `tests/` (not next to the source code), mirroring the structure of `src/`.
+- `tests/test/helpers.ts` has reusable mocks/builders: `createMockTelegramPort()`,
   `createMockHandlerRegistry()`, `createQueueService()`, `makeMessage()`/`makePhoto()`/
-  `makeVideo()`. Reutilizarlos en vez de crear mocks ad-hoc.
-  - Al instanciar `TelegramClient` en tests, pasar `retries: 0` para no depender de
-    backoff/timers reales.
-- `tests/test/setup.ts` corre `vi.restoreAllMocks()` después de cada test (registrado
-  como `setupFiles` global en `vitest.config.ts`).
-- Cobertura excluye `src/index.ts` (es wiring, no lógica testeable en aislamiento).
+  `makeVideo()`. Reuse them instead of creating ad-hoc mocks.
+  - When instantiating `TelegramClient` in tests, pass `retries: 0` so as not to depend on
+    real backoff/timers.
+- `tests/test/setup.ts` runs `vi.restoreAllMocks()` after each test (registered
+  as a global `setupFiles` in `vitest.config.ts`).
+- Coverage excludes `src/index.ts` (it is wiring, not logic testable in isolation).
 
-### Notas de diseño no obvias
+### Non-obvious design notes
 
-- El `QueueService` mantiene una única cadena de promesas por instancia; si una tarea
-  falla, la cadena sigue viva (`catch(() => {})`) para no bloquear las siguientes.
-- El circuit breaker de `TelegramClient` es independiente del retry interno: el retry
-  intenta recuperarse de un blip corto: el breaker previene seguir intentando cuando el
-  patrón indica una caída sostenida.
-- `isTransientNetworkError`/`backoffWithJitter` en `domain/services/transient-network.ts`
-  son la única fuente de verdad para "¿reintento esto?" — si se agrega un nuevo caller
-  de red, usar estas funciones en vez de reimplementar la heurística.
+- The `QueueService` keeps a single promise chain per instance; if a task
+  fails, the chain stays alive (`catch(() => {})`) so as not to block the following ones.
+- The circuit breaker of `TelegramClient` is independent of the internal retry: the retry
+  tries to recover from a short blip; the breaker prevents continuing to try when the pattern
+  indicates a sustained outage.
+- `isTransientNetworkError`/`backoffWithJitter` in `domain/services/transient-network.ts`
+  are the only source of truth for "should I retry this?" — if a new network caller is added,
+  use these functions instead of reimplementing the heuristic.
