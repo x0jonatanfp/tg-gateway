@@ -10,3 +10,7 @@ tmp/
 
 # Destino local de despliegue (no se versiona)
 local.mk
+
+# secretos locales (las plantillas .env.example sí se versionan)
+.env.*
+!.env.example
